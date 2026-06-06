@@ -1,0 +1,724 @@
+-- ============================================================
+--  COMBINED COMBAT PANEL & AIMBOT | Rayfield UI
+-- ============================================================
+
+--// Cache
+local select = select
+local pcall, getgenv, next, Vector2, mathclamp, type, mousemoverel = select(1, pcall, getgenv, next, Vector2.new, math.clamp, type, mousemoverel or (Input and Input.MouseMove))
+
+--// Preventing Multiple Processes
+pcall(function()
+    if getgenv().Aimbot and getgenv().Aimbot.Functions then
+        getgenv().Aimbot.Functions:Exit()
+    end
+end)
+
+--// Environment
+getgenv().Aimbot = {}
+local Environment = getgenv().Aimbot
+
+--// Services
+local RunService        = game:GetService("RunService")
+local UserInputService  = game:GetService("UserInputService")
+local TweenService      = game:GetService("TweenService")
+local Players           = game:GetService("Players")
+local Camera            = workspace.CurrentCamera
+local LocalPlayer       = Players.LocalPlayer
+
+--// Variables
+local RequiredDistance, Typing, Running, Animation, ServiceConnections = 2000, false, false, nil, {}
+
+--// Script Settings
+Environment.Settings = {
+    Enabled = true,
+    TeamCheck = false,
+    AliveCheck = true,
+    WallCheck = false,
+    Sensitivity = 0,
+    ThirdPerson = false,
+    ThirdPersonSensitivity = 3,
+    TriggerKey = "MouseButton2",
+    Toggle = false,
+    LockPart = "Head"
+}
+
+Environment.FOVSettings = {
+    Enabled = true,
+    Visible = true,
+    Amount = 250,
+    Color = Color3.fromRGB(255, 255, 255),
+    LockedColor = Color3.fromRGB(255, 70, 70),
+    Transparency = 0.5,
+    Sides = 210,
+    Thickness = 1,
+    Filled = false
+}
+
+Environment.FOVCircle = Drawing.new("Circle")
+
+--// ESP Variables
+local espEnabled    = false
+local espHighlights = {}
+local espBillboards = {}
+local espFillColor    = Color3.fromRGB(255, 50, 50)
+local espOutlineColor = Color3.fromRGB(255, 255, 255)
+local espShowNames  = true
+local espShowDist   = true
+
+--// Functions
+local function CancelLock()
+    Environment.Locked = nil
+    if Animation then Animation:Cancel() end
+    Environment.FOVCircle.Color = Environment.FOVSettings.Color
+end
+
+local function IsWallBetween(targetPosition, targetCharacter)
+    if not LocalPlayer.Character or not Camera then return false end
+    
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+    raycastParams.FilterDescendantsInstances = {LocalPlayer.Character, targetCharacter}
+    raycastParams.IgnoreWater = true
+
+    local origin = Camera.CFrame.Position
+    local direction = targetPosition - origin
+    local raycastResult = workspace:Raycast(origin, direction, raycastParams)
+
+    if raycastResult then
+        return true
+    end
+    return false
+end
+
+local function GetClosestPlayer()
+    if not Environment.Locked then
+        RequiredDistance = (Environment.FOVSettings.Enabled and tonumber(Environment.FOVSettings.Amount) or 2000)
+
+        for _, v in next, Players:GetPlayers() do
+            if v ~= LocalPlayer then
+                if v.Character and v.Character:FindFirstChild(Environment.Settings.LockPart) then
+                    if Environment.Settings.TeamCheck and v.Team == LocalPlayer.Team then continue end
+                    
+                    local humanoid = v.Character:FindFirstChildOfClass("Humanoid")
+                    if Environment.Settings.AliveCheck and humanoid then
+                        if humanoid.Health <= 0 then continue end
+                    end
+                    
+                    if Environment.Settings.WallCheck and IsWallBetween(v.Character[Environment.Settings.LockPart].Position, v.Character) then continue end
+
+                    local Vector, OnScreen = Camera:WorldToViewportPoint(v.Character[Environment.Settings.LockPart].Position)
+                    local Distance = (Vector2(UserInputService:GetMouseLocation().X, UserInputService:GetMouseLocation().Y) - Vector2(Vector.X, Vector.Y)).Magnitude
+
+                    if Distance < RequiredDistance and OnScreen then
+                        RequiredDistance = Distance
+                        Environment.Locked = v
+                    end
+                end
+            end
+        end
+    elseif (Vector2(UserInputService:GetMouseLocation().X, UserInputService:GetMouseLocation().Y) - Vector2(Camera:WorldToViewportPoint(Environment.Locked.Character[Environment.Settings.LockPart].Position).X, Camera:WorldToViewportPoint(Environment.Locked.Character[Environment.Settings.LockPart].Position).Y)).Magnitude > RequiredDistance then
+        CancelLock()
+    end
+end
+
+--// Typing Check
+ServiceConnections.TypingStartedConnection = UserInputService.TextBoxFocused:Connect(function()
+    Typing = true
+end)
+
+ServiceConnections.TypingEndedConnection = UserInputService.TextBoxFocusReleased:Connect(function()
+    Typing = false
+end)
+
+--// Main Load
+local function Load()
+    ServiceConnections.RenderSteppedConnection = RunService.RenderStepped:Connect(function()
+        if Environment.FOVSettings.Enabled and Environment.Settings.Enabled then
+            Environment.FOVCircle.Radius = tonumber(Environment.FOVSettings.Amount) or 250
+            Environment.FOVCircle.Thickness = Environment.FOVSettings.Thickness
+            Environment.FOVCircle.Filled = Environment.FOVSettings.Filled
+            Environment.FOVCircle.NumSides = Environment.FOVSettings.Sides
+            Environment.FOVCircle.Color = Environment.FOVSettings.Color
+            Environment.FOVSettings.Transparency = Environment.FOVSettings.Transparency
+            Environment.FOVCircle.Visible = Environment.FOVSettings.Visible
+            Environment.FOVCircle.Position = Vector2(UserInputService:GetMouseLocation().X, UserInputService:GetMouseLocation().Y)
+        else
+            Environment.FOVCircle.Visible = false
+        end
+
+        if Running and Environment.Settings.Enabled then
+            GetClosestPlayer()
+
+            if Environment.Locked then
+                if not Environment.Locked.Character or not Environment.Locked.Character:FindFirstChild(Environment.Settings.LockPart) then
+                    CancelLock()
+                else
+                    if Environment.Settings.ThirdPerson then
+                        Environment.Settings.ThirdPersonSensitivity = mathclamp(Environment.Settings.ThirdPersonSensitivity, 0.1, 5)
+
+                        local Vector = Camera:WorldToViewportPoint(Environment.Locked.Character[Environment.Settings.LockPart].Position)
+                        mousemoverel((Vector.X - UserInputService:GetMouseLocation().X) * Environment.Settings.ThirdPersonSensitivity, (Vector.Y - UserInputService:GetMouseLocation().Y) * Environment.Settings.ThirdPersonSensitivity)
+                    else
+                        if Environment.Settings.Sensitivity > 0 then
+                            Animation = TweenService:Create(Camera, TweenInfo.new(Environment.Settings.Sensitivity, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {CFrame = CFrame.new(Camera.CFrame.Position, Environment.Locked.Character[Environment.Settings.LockPart].Position)})
+                            Animation:Play()
+                        else
+                            Camera.CFrame = CFrame.new(Camera.CFrame.Position, Environment.Locked.Character[Environment.Settings.LockPart].Position)
+                        end
+                    end
+
+                    Environment.FOVCircle.Color = Environment.FOVSettings.LockedColor
+                end
+            end
+        end
+    end)
+
+    ServiceConnections.InputBeganConnection = UserInputService.InputBegan:Connect(function(Input)
+        if not Typing then
+            pcall(function()
+                if Input.KeyCode == Enum.KeyCode[Environment.Settings.TriggerKey] then
+                    if Environment.Settings.Toggle then
+                        Running = not Running
+                        if not Running then CancelLock() end
+                    else
+                        Running = true
+                    end
+                end
+            end)
+
+            pcall(function()
+                if Input.UserInputType == Enum.UserInputType[Environment.Settings.TriggerKey] then
+                    if Environment.Settings.Toggle then
+                        Running = not Running
+                        if not Running then CancelLock() end
+                    else
+                        Running = true
+                    end
+                end
+            end)
+        end
+    end)
+
+    ServiceConnections.InputEndedConnection = UserInputService.InputEnded:Connect(function(Input)
+        if not Typing then
+            if not Environment.Settings.Toggle then
+                pcall(function()
+                    if Input.KeyCode == Enum.KeyCode[Environment.Settings.TriggerKey] then
+                        Running = false; CancelLock()
+                    end
+                end)
+
+                pcall(function()
+                    if Input.UserInputType == Enum.UserInputType[Environment.Settings.TriggerKey] then
+                        Running = false; CancelLock()
+                    end
+                end)
+            end
+        end
+    end)
+end
+
+--// Environment Functions
+Environment.Functions = {}
+
+function Environment.Functions:Exit()
+    for _, v in next, ServiceConnections do v:Disconnect() end
+    if Environment.FOVCircle.Remove then Environment.FOVCircle:Remove() end
+    getgenv().Aimbot.Functions = nil
+    getgenv().Aimbot = nil
+    Load = nil; GetClosestPlayer = nil; CancelLock = nil
+end
+
+--// ESP Logic
+local function removeESP(player)
+    if espHighlights[player] then espHighlights[player]:Destroy() espHighlights[player] = nil end
+    if espBillboards[player] then espBillboards[player]:Destroy() espBillboards[player] = nil end
+end
+
+local function makeNameTag(player, char)
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    local bb = Instance.new("BillboardGui")
+    bb.Name = "ESP_BB" bb.AlwaysOnTop = true
+    bb.Size = UDim2.new(0, 150, 0, 40)
+    bb.StudsOffset = Vector3.new(0, 3.5, 0)
+    bb.Adornee = hrp bb.Parent = hrp
+    local label = Instance.new("TextLabel", bb)
+    label.Size = UDim2.new(1,0,1,0)
+    label.BackgroundTransparency = 1
+    label.TextColor3 = Color3.new(1,1,1)
+    label.TextStrokeTransparency = 0
+    label.TextStrokeColor3 = Color3.new(0,0,0)
+    label.Font = Enum.Font.GothamBold
+    label.TextScaled = true
+    label.Text = player.Name
+    espBillboards[player] = bb
+    
+    local conn
+    conn = RunService.Heartbeat:Connect(function()
+        if not espEnabled or not espBillboards[player] or not hrp.Parent then 
+            if conn then conn:Disconnect() end
+            return 
+        end
+        local lc = LocalPlayer.Character
+        local lh = lc and lc:FindFirstChild("HumanoidRootPart")
+        if not lh then return end
+        local dist = math.floor((hrp.Position - lh.Position).Magnitude)
+        local t = (espShowNames and player.Name or "") .. (espShowDist and (" [" .. dist .. "m]") or "")
+        label.Text = t
+    end)
+end
+
+local function applyESP(player)
+    if player == LocalPlayer then return end
+    local char = player.Character
+    if not char then return end
+    removeESP(player)
+    
+    local h = Instance.new("Highlight")
+    h.FillColor    = espFillColor
+    h.OutlineColor = espOutlineColor
+    h.FillTransparency    = 0.35
+    h.OutlineTransparency = 0
+    h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    h.Adornee = char h.Parent = char
+    espHighlights[player] = h
+    makeNameTag(player, char)
+end
+
+local function enableESP()
+    espEnabled = true
+    for _, p in ipairs(Players:GetPlayers()) do applyESP(p) end
+end
+
+local function disableESP()
+    espEnabled = false
+    for p in pairs(espHighlights) do removeESP(p) end
+end
+
+-- Track character adding for ESP
+Players.PlayerAdded:Connect(function(p)
+    p.CharacterAdded:Connect(function(char)
+        if espEnabled then
+            task.wait(0.5)
+            applyESP(p)
+        end
+    end)
+end)
+
+for _, p in ipairs(Players:GetPlayers()) do
+    p.CharacterAdded:Connect(function(char)
+        if espEnabled then
+            task.wait(0.5)
+            applyESP(p)
+        end
+    end)
+end
+
+Players.PlayerRemoving:Connect(function(p) removeESP(p) end)
+
+--// Rayfield UI Initialization
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+    Name = "Combat Panel Pro",
+    LoadingTitle = "Combat Panel",
+    LoadingSubtitle = "by de owner & improved",
+    ConfigurationSaving = { Enabled = false },
+    KeySystem = false
+})
+
+local MainTab = Window:CreateTab("🎯 Aimbot", 4483362458)
+local FOVTab  = Window:CreateTab("⭕ FOV Circle", 4483362458)
+local ESPTab  = Window:CreateTab("👁️ Highlight ESP", 4483362458)
+local TPTab   = Window:CreateTab("📍 Teleport", 4483362458)
+local MoveTab = Window:CreateTab("🏃 Bewegen", 4483362458)
+
+-- ==========================================
+-- AIMBOT TAB
+-- ==========================================
+MainTab:CreateToggle({
+    Name = "Enabled",
+    CurrentValue = Environment.Settings.Enabled,
+    Flag = "AimEnabled",
+    Callback = function(Value)
+        Environment.Settings.Enabled = Value
+        if not Value then CancelLock() end
+    end
+})
+
+MainTab:CreateToggle({
+    Name = "Team Check",
+    CurrentValue = Environment.Settings.TeamCheck,
+    Flag = "AimTeam",
+    Callback = function(Value) Environment.Settings.TeamCheck = Value end
+})
+
+MainTab:CreateToggle({
+    Name = "Alive Check",
+    CurrentValue = Environment.Settings.AliveCheck,
+    Flag = "AimAlive",
+    Callback = function(Value) Environment.Settings.AliveCheck = Value end
+})
+
+MainTab:CreateToggle({
+    Name = "Wall Check",
+    CurrentValue = Environment.Settings.WallCheck,
+    Flag = "AimWall",
+    Callback = function(Value) Environment.Settings.WallCheck = Value end
+})
+
+MainTab:CreateDropdown({
+    Name = "Lock Part",
+    Options = {"Head", "HumanoidRootPart", "UpperTorso", "LowerTorso"},
+    CurrentOption = {Environment.Settings.LockPart},
+    MultipleOptions = false,
+    Flag = "AimPart",
+    Callback = function(Option) Environment.Settings.LockPart = Option[1] end
+})
+
+MainTab:CreateToggle({
+    Name = "Toggle Mode",
+    CurrentValue = Environment.Settings.Toggle,
+    Flag = "AimToggle",
+    Callback = function(Value)
+        Environment.Settings.Toggle = Value
+        Running = false
+        CancelLock()
+    end
+})
+
+MainTab:CreateDropdown({
+    Name = "Trigger Key",
+    Options = {"MouseButton2", "MouseButton1", "E", "Q", "LeftShift", "C"},
+    CurrentOption = {Environment.Settings.TriggerKey},
+    MultipleOptions = false,
+    Flag = "AimKey",
+    Callback = function(Option) Environment.Settings.TriggerKey = Option[1] end
+})
+
+MainTab:CreateSlider({
+    Name = "Sensitivity (Smoothness)",
+    Range = {0, 5},
+    Increment = 0.1,
+    CurrentValue = Environment.Settings.Sensitivity,
+    Flag = "AimSens",
+    Callback = function(Value) Environment.Settings.Sensitivity = Value end
+})
+
+MainTab:CreateToggle({
+    Name = "Third Person",
+    CurrentValue = Environment.Settings.ThirdPerson,
+    Flag = "AimThird",
+    Callback = function(Value) Environment.Settings.ThirdPerson = Value end
+})
+
+MainTab:CreateSlider({
+    Name = "Third Person Sensitivity",
+    Range = {0.1, 5},
+    Increment = 0.1,
+    CurrentValue = Environment.Settings.ThirdPersonSensitivity,
+    Flag = "AimThirdSens",
+    Callback = function(Value) Environment.Settings.ThirdPersonSensitivity = Value end
+})
+
+-- ==========================================
+-- FOV TAB
+-- ==========================================
+FOVTab:CreateToggle({
+    Name = "FOV Enabled",
+    CurrentValue = Environment.FOVSettings.Enabled,
+    Flag = "FovEnable",
+    Callback = function(Value) Environment.FOVSettings.Enabled = Value end
+})
+
+FOVTab:CreateToggle({
+    Name = "FOV Visible",
+    CurrentValue = Environment.FOVSettings.Visible,
+    Flag = "FovVisible",
+    Callback = function(Value) Environment.FOVSettings.Visible = Value end
+})
+
+FOVTab:CreateSlider({
+    Name = "FOV Radius (Amount)",
+    Range = {10, 1000},
+    Increment = 5,
+    CurrentValue = Environment.FOVSettings.Amount,
+    Flag = "FovAmount",
+    Callback = function(Value) Environment.FOVSettings.Amount = Value end
+})
+
+FOVTab:CreateSlider({
+    Name = "FOV Transparency",
+    Range = {0, 1},
+    Increment = 0.1,
+    CurrentValue = Environment.FOVSettings.Transparency,
+    Flag = "FovTrans",
+    Callback = function(Value) Environment.FOVSettings.Transparency = Value end
+})
+
+FOVTab:CreateSlider({
+    Name = "FOV Thickness",
+    Range = {1, 10},
+    Increment = 1,
+    CurrentValue = Environment.FOVSettings.Thickness,
+    Flag = "FovThick",
+    Callback = function(Value) Environment.FOVSettings.Thickness = Value end
+})
+
+FOVTab:CreateToggle({
+    Name = "FOV Filled",
+    CurrentValue = Environment.FOVSettings.Filled,
+    Flag = "FovFilled",
+    Callback = function(Value) Environment.FOVSettings.Filled = Value end
+})
+
+FOVTab:CreateColorPicker({
+    Name = "Default FOV Color",
+    Color = Environment.FOVSettings.Color,
+    Flag = "FovColor1",
+    Callback = function(Value) Environment.FOVSettings.Color = Value end
+})
+
+FOVTab:CreateColorPicker({
+    Name = "Locked FOV Color",
+    Color = Environment.FOVSettings.LockedColor,
+    Flag = "FovColor2",
+    Callback = function(Value) Environment.FOVSettings.LockedColor = Value end
+})
+
+-- ==========================================
+-- ESP TAB
+-- ==========================================
+ESPTab:CreateToggle({ 
+    Name = "Highlight inschakelen", 
+    CurrentValue = false, 
+    Flag = "ESPOn",
+    Callback = function(s) if s then enableESP() else disableESP() end end 
+})
+
+ESPTab:CreateSection("Kleuren")
+
+ESPTab:CreateColorPicker({ 
+    Name = "Fill kleur", 
+    Color = Color3.fromRGB(255,50,50), 
+    Flag = "ESPFill",
+    Callback = function(c)
+        espFillColor = c
+        for _, h in pairs(espHighlights) do h.FillColor = c end
+    end 
+})
+
+ESPTab:CreateColorPicker({ 
+    Name = "Outline kleur", 
+    Color = Color3.fromRGB(255,255,255), 
+    Flag = "ESPOutline",
+    Callback = function(c)
+        espOutlineColor = c
+        for _, h in pairs(espHighlights) do h.OutlineColor = c end
+    end 
+})
+
+ESPTab:CreateSection("Opties")
+ESPTab:CreateToggle({ Name = "Namen tonen", CurrentValue = true, Flag = "ESPNames", Callback = function(s) espShowNames = s end })
+ESPTab:CreateToggle({ Name = "Afstand tonen", CurrentValue = true, Flag = "ESPDist", Callback = function(s) espShowDist = s end })
+
+ESPTab:CreateSection("Kleur Presets")
+local presets = {
+    { name = "🔴 Rood",   fill = Color3.fromRGB(255,50,50),   outline = Color3.fromRGB(255,255,255) },
+    { name = "🔵 Blauw",  fill = Color3.fromRGB(50,100,255),  outline = Color3.fromRGB(255,255,255) },
+    { name = "🟢 Groen",  fill = Color3.fromRGB(50,255,100),  outline = Color3.fromRGB(0,0,0)       },
+    { name = "🟡 Geel",   fill = Color3.fromRGB(255,230,50),  outline = Color3.fromRGB(0,0,0)       },
+    { name = "🟣 Paars",  fill = Color3.fromRGB(180,50,255),  outline = Color3.fromRGB(255,255,255) },
+    { name = "🩷 Roze",   fill = Color3.fromRGB(255,80,180),  outline = Color3.fromRGB(255,255,255) },
+    { name = "🌈 Rainbow", fill = nil, outline = nil },
+}
+
+local rainbowConn
+local function stopRainbow() if rainbowConn then rainbowConn:Disconnect() rainbowConn = nil end end
+
+for _, preset in ipairs(presets) do
+    local p = preset
+    ESPTab:CreateButton({ Name = p.name, Callback = function()
+        stopRainbow()
+        if p.name == "🌈 Rainbow" then
+            local hue = 0
+            rainbowConn = RunService.Heartbeat:Connect(function(dt)
+                hue = (hue + dt * 0.3) % 1
+                local c = Color3.fromHSV(hue, 1, 1)
+                espFillColor = c
+                for _, h in pairs(espHighlights) do h.FillColor = c end
+            end)
+            Rayfield:Notify({ Title = "🌈 Rainbow", Content = "Rainbow ESP ingeschakeld!", Duration = 3 })
+        else
+            espFillColor    = p.fill
+            espOutlineColor = p.outline
+            for _, h in pairs(espHighlights) do
+                h.FillColor    = p.fill
+                h.OutlineColor = p.outline
+            end
+            Rayfield:Notify({ Title = p.name, Content = "Kleur toegepast!", Duration = 2 })
+        end
+    end })
+end
+
+-- ==========================================
+-- TELEPORT TAB
+-- ==========================================
+local playerIcons = {"🏍️","🚴","🛵","🤙","🏁","💨","👑","🔥"}
+local addedTPPlayers = {}
+local tpIconIndex = 0
+
+local function teleportToPlayer(player, icon)
+    local tc = player.Character
+    local th = tc and tc:FindFirstChild("HumanoidRootPart")
+    if not th then
+        Rayfield:Notify({ Title = "Niet bereikbaar", Content = player.Name .. " heeft geen karakter.", Duration = 3 })
+        return
+    end
+    local mc = LocalPlayer.Character
+    local mh = mc and mc:FindFirstChild("HumanoidRootPart")
+    if not mh then return end
+    mh.CFrame = th.CFrame + Vector3.new(3, 0, 0)
+    Rayfield:Notify({ Title = icon .. " Geteleporteerd!", Content = "Je staat nu naast " .. player.Name, Duration = 3 })
+end
+
+local function addTPButton(player)
+    if player == LocalPlayer then return end
+    if addedTPPlayers[player.Name] then return end
+    addedTPPlayers[player.Name] = true
+    tpIconIndex = (tpIconIndex % #playerIcons) + 1
+    local icon = playerIcons[tpIconIndex]
+    TPTab:CreateButton({
+        Name = icon .. "  " .. player.Name,
+        Callback = function()
+            local target = Players:FindFirstChild(player.Name)
+            if not target then
+                Rayfield:Notify({ Title = "Niet in server", Content = player.Name .. " heeft de server verlaten.", Duration = 3 })
+                return
+            end
+            teleportToPlayer(target, icon)
+        end,
+    })
+end
+
+TPTab:CreateSection("🧍 Spelers")
+TPTab:CreateButton({ Name = "🔄 Ververs lijst", Callback = function()
+    addedTPPlayers = {} tpIconIndex = 0
+    local count = 0
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then addTPButton(p) count = count + 1 end
+    end
+    Rayfield:Notify({ Title = "🔄 Ververst", Content = count .. " speler(s) gevonden.", Duration = 3 })
+end })
+
+for _, p in ipairs(Players:GetPlayers()) do addTPButton(p) end
+Players.PlayerAdded:Connect(function(p) task.wait(1) addTPButton(p) end)
+
+-- ==========================================
+-- MOVE TAB (Fly & Speed)
+-- ==========================================
+MoveTab:CreateSection("🏃 Loopsnelheid")
+
+local currentSpeed = 16
+MoveTab:CreateSlider({
+    Name = "Loopsnelheid", Range = {16, 300}, Increment = 2, CurrentValue = 16, Flag = "WalkSpeed",
+    Callback = function(val)
+        currentSpeed = val
+        local char = LocalPlayer.Character
+        local hum  = char and char:FindFirstChildOfClass("Humanoid")
+        if hum then hum.WalkSpeed = val end
+    end,
+})
+
+local speedPresets = {
+    { name = "🐢 Normaal",  speed = 16  },
+    { name = "🚶 Snel",      speed = 40  },
+    { name = "🏃 Sprint",   speed = 80  },
+    { name = "💨 Turbo",    speed = 150 },
+    { name = "⚡ Max",      speed = 300 },
+}
+for _, sp in ipairs(speedPresets) do
+    local s = sp
+    MoveTab:CreateButton({ Name = s.name, Callback = function()
+        currentSpeed = s.speed
+        local char = LocalPlayer.Character
+        local hum  = char and char:FindFirstChildOfClass("Humanoid")
+        if hum then hum.WalkSpeed = s.speed end
+        Rayfield:Notify({ Title = s.name, Content = "Snelheid: " .. s.speed, Duration = 2 })
+    end })
+end
+
+LocalPlayer.CharacterAdded:Connect(function(char)
+    local hum = char:WaitForChild("Humanoid")
+    task.wait(0.3)
+    hum.WalkSpeed = currentSpeed
+end)
+
+MoveTab:CreateSection("✈️ Vliegen")
+
+local flying   = false
+local flySpeed = 60
+local flyConn, bodyVel, bodyGyro
+
+local function stopFly()
+    flying = false
+    if flyConn  then flyConn:Disconnect()  flyConn  = nil end
+    if bodyVel  then bodyVel:Destroy()     bodyVel  = nil end
+    if bodyGyro then bodyGyro:Destroy()    bodyGyro = nil end
+    local char = LocalPlayer.Character
+    local hum  = char and char:FindFirstChildOfClass("Humanoid")
+    if hum then hum.PlatformStand = false end
+end
+
+local function startFly()
+    local char = LocalPlayer.Character
+    local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+    local hum  = char and char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum then return end
+    flying = true
+    hum.PlatformStand = true
+    bodyVel = Instance.new("BodyVelocity", hrp)
+    bodyVel.MaxForce = Vector3.new(1e5,1e5,1e5)
+    bodyVel.Velocity = Vector3.zero
+    bodyGyro = Instance.new("BodyGyro", hrp)
+    bodyGyro.MaxTorque = Vector3.new(1e5,1e5,1e5)
+    bodyGyro.P = 1e4
+    local cam = workspace.CurrentCamera
+    flyConn = RunService.Heartbeat:Connect(function()
+        if not flying then return end
+        local dir = Vector3.zero
+        if UserInputService:IsKeyDown(Enum.KeyCode.W)           then dir += cam.CFrame.LookVector  end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S)           then dir -= cam.CFrame.LookVector  end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A)           then dir -= cam.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D)           then dir += cam.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space)       then dir += Vector3.new(0,1,0)     end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then dir -= Vector3.new(0,1,0)     end
+        if dir.Magnitude > 0 then dir = dir.Unit end
+        bodyVel.Velocity = dir * flySpeed
+        bodyGyro.CFrame  = cam.CFrame
+    end)
+end
+
+MoveTab:CreateToggle({ Name = "Vliegen inschakelen", CurrentValue = false, Flag = "FlyOn",
+    Callback = function(s) if s then startFly() else stopFly() end end })
+
+MoveTab:CreateSlider({ Name = "Vliegsnelheid", Range = {10,300}, Increment = 5, CurrentValue = 60, Flag = "FlySpeed",
+    Callback = function(val) flySpeed = val end })
+
+MoveTab:CreateSection("Besturing")
+MoveTab:CreateLabel("WASD = bewegen  |  Space = omhoog  |  LCtrl = omlaag")
+
+LocalPlayer.CharacterAdded:Connect(function()
+    if flying then task.wait(0.5) stopFly() startFly() end
+end)
+
+--// Initialize Aimbot Logic
+Load()
+
+--// Ready Notification
+Rayfield:Notify({
+    Name = "Combat Panel Pro",
+    Content = "Alles succesvol geladen in één menu!",
+    Duration = 5,
+})
