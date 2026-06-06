@@ -71,7 +71,8 @@ local function getOtherPlayerNames()
     return names
 end
 
-local selectedTPPlayer = nil
+-- Sla alleen de NAAM op als string, zoek de speler live op bij knopdruk
+local selectedTPName = ""
 
 TeleportTab:CreateDropdown({
     Name            = "Kies speler",
@@ -80,30 +81,104 @@ TeleportTab:CreateDropdown({
     MultipleOptions = false,
     Flag            = "TPPlayerTarget",
     Callback        = function(option)
-        selectedTPPlayer = Players:FindFirstChild(option)
+        selectedTPName = tostring(option)
     end,
 })
 
 TeleportTab:CreateButton({
-    Name = "🚀 Teleporteer naar speler",
+    Name = "🔄 Ververs spelerslijst",
     Callback = function()
-        if not selectedTPPlayer then
-            Rayfield:Notify({ Title = "Geen speler", Content = "Kies eerst een speler uit de lijst.", Duration = 3 })
+        -- Rayfield ondersteunt geen live dropdown refresh,
+        -- dus tonen we alle spelers als knoppen hieronder
+        Rayfield:Notify({
+            Title   = "Tip",
+            Content = "Gebruik de knoppen hieronder voor live teleport!",
+            Duration = 4,
+        })
+    end,
+})
+
+TeleportTab:CreateButton({
+    Name = "🚀 Teleporteer naar geselecteerde speler",
+    Callback = function()
+        -- Zoek de speler LIVE op bij knopdruk op naam
+        local target = nil
+        if selectedTPName ~= "" then
+            target = Players:FindFirstChild(selectedTPName)
+        end
+
+        -- Fallback: als de dropdown naam niet werkt, zoek op iedereen behalve zichzelf
+        if not target then
+            -- Probeer de eerste andere speler als er maar 1 is
+            local others = {}
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= LocalPlayer then table.insert(others, p) end
+            end
+            if #others == 1 then
+                target = others[1]
+            end
+        end
+
+        if not target then
+            Rayfield:Notify({
+                Title   = "Geen speler gevonden",
+                Content = "Selecteer een speler uit de dropdown. Er zijn nu " .. #Players:GetPlayers() - 1 .. " andere spelers.",
+                Duration = 4,
+            })
             return
         end
-        local targetChar = selectedTPPlayer.Character
+
+        local targetChar = target.Character
         local targetHRP  = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
         if not targetHRP then
-            Rayfield:Notify({ Title = "Speler niet gevonden", Content = selectedTPPlayer.Name .. " heeft geen karakter.", Duration = 3 })
+            Rayfield:Notify({ Title = "Speler niet bereikbaar", Content = target.Name .. " heeft geen karakter op dit moment.", Duration = 3 })
             return
         end
+
         local myChar = LocalPlayer.Character
         local myHRP  = myChar and myChar:FindFirstChild("HumanoidRootPart")
         if not myHRP then return end
+
         myHRP.CFrame = targetHRP.CFrame + Vector3.new(3, 0, 0)
-        Rayfield:Notify({ Title = "Geteleporteerd! 🚀", Content = "Je staat nu bij " .. selectedTPPlayer.Name, Duration = 3 })
+        Rayfield:Notify({ Title = "Geteleporteerd! 🚀", Content = "Je staat nu bij " .. target.Name, Duration = 3 })
     end,
 })
+
+-- ── Live knoppen per speler (altijd up-to-date) ──────────────
+TeleportTab:CreateSection("Directe Teleport per Speler")
+TeleportTab:CreateLabel("Knoppen verschijnen hieronder voor elke speler in de server.")
+
+-- Maak een knop voor elke speler die al in de server is
+local function addPlayerTPButton(player)
+    if player == LocalPlayer then return end
+    TeleportTab:CreateButton({
+        Name = "➡️ " .. player.Name,
+        Callback = function()
+            local targetChar = player.Character
+            local targetHRP  = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
+            if not targetHRP then
+                Rayfield:Notify({ Title = "Niet bereikbaar", Content = player.Name .. " heeft geen karakter.", Duration = 3 })
+                return
+            end
+            local myChar = LocalPlayer.Character
+            local myHRP  = myChar and myChar:FindFirstChild("HumanoidRootPart")
+            if not myHRP then return end
+            myHRP.CFrame = targetHRP.CFrame + Vector3.new(3, 0, 0)
+            Rayfield:Notify({ Title = "Geteleporteerd! 🚀", Content = "Je staat nu bij " .. player.Name, Duration = 3 })
+        end,
+    })
+end
+
+-- Voeg knoppen toe voor spelers die al in de server zijn
+for _, p in ipairs(Players:GetPlayers()) do
+    addPlayerTPButton(p)
+end
+
+-- Voeg automatisch een knop toe als een nieuwe speler joint
+Players.PlayerAdded:Connect(function(p)
+    task.wait(1) -- wacht tot speler geladen is
+    addPlayerTPButton(p)
+end)
 
 -- ── Handmatig ────────────────────────────────────────────────
 TeleportTab:CreateSection("Handmatig")
