@@ -38,7 +38,6 @@ local Locations = {
     -- { Name = "⛽ Benzinestation", Icon = "⛽", Position = Vector3.new(0, 5, 0) },
 }
 
-
 -- ── Directe teleport per speler ──────────────────────────────
 TeleportTab:CreateSection("🧍 Teleport naar Speler")
 TeleportTab:CreateLabel("Druk op een naam om direct naar die speler te gaan.")
