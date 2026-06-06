@@ -38,6 +38,27 @@ local Locations = {
     -- { Name = "⛽ Benzinestation", Icon = "⛽", Position = Vector3.new(0, 5, 0) },
 }
 
+local function teleportTo(location)
+    local char = LocalPlayer.Character
+    local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then
+        Rayfield:Notify({ Title = "Niet klaar", Content = "Je karakter is nog niet geladen!", Duration = 3 })
+        return
+    end
+    hrp.CFrame = CFrame.new(location.Position + Vector3.new(0, 4, 0))
+    Rayfield:Notify({ Title = "Geteleporteerd! " .. location.Icon, Content = "Je bent nu bij " .. location.Name, Duration = 3 })
+end
+
+local TeleportTab = Window:CreateTab("📍 Teleport", 4483362458)
+TeleportTab:CreateSection("Locaties")
+
+for _, location in ipairs(Locations) do
+    local loc = location
+    TeleportTab:CreateButton({
+        Name     = loc.Name,
+        Callback = function() teleportTo(loc) end,
+    })
+end
 
 -- ── Directe teleport per speler ──────────────────────────────
 TeleportTab:CreateSection("🧍 Teleport naar Speler")
