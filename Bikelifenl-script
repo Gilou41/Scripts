@@ -38,27 +38,6 @@ local Locations = {
     -- { Name = "⛽ Benzinestation", Icon = "⛽", Position = Vector3.new(0, 5, 0) },
 }
 
-local function teleportTo(location)
-    local char = LocalPlayer.Character
-    local hrp  = char and char:FindFirstChild("HumanoidRootPart")
-    if not hrp then
-        Rayfield:Notify({ Title = "Niet klaar", Content = "Je karakter is nog niet geladen!", Duration = 3 })
-        return
-    end
-    hrp.CFrame = CFrame.new(location.Position + Vector3.new(0, 4, 0))
-    Rayfield:Notify({ Title = "Geteleporteerd! " .. location.Icon, Content = "Je bent nu bij " .. location.Name, Duration = 3 })
-end
-
-local TeleportTab = Window:CreateTab("📍 Teleport", 4483362458)
-TeleportTab:CreateSection("Locaties")
-
-for _, location in ipairs(Locations) do
-    local loc = location
-    TeleportTab:CreateButton({
-        Name     = loc.Name,
-        Callback = function() teleportTo(loc) end,
-    })
-end
 
 -- ── Directe teleport per speler ──────────────────────────────
 TeleportTab:CreateSection("🧍 Teleport naar Speler")
@@ -66,71 +45,89 @@ TeleportTab:CreateLabel("Druk op een naam om direct naar die speler te gaan.")
 
 local playerIcons = {"🏍️", "🚴", "🛵", "🤙", "🏁", "💨", "👑", "🔥"}
 
--- Bijhouden welke knoppen er zijn zodat we ze kunnen verwijderen bij refresh
-local playerTPButtons = {}  -- [knop] = true
+-- Rayfield geeft geen object terug bij CreateButton, dus we gebruiken
+-- een aparte ScreenGui als container die we kunnen wissen bij refresh.
+-- De knoppen staan in een eigen Frame die we rebuilden.
 
-local function clearPlayerButtons()
-    for btn, _ in pairs(playerTPButtons) do
-        pcall(function() btn:Destroy() end)
+local tpScreenGui = Instance.new("ScreenGui")
+tpScreenGui.Name = "TPPlayerButtons"
+tpScreenGui.ResetOnSpawn = false
+tpScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+local tpFrame = Instance.new("Frame")
+tpFrame.Size = UDim2.new(0, 0, 0, 0)
+tpFrame.BackgroundTransparency = 1
+tpFrame.Parent = tpScreenGui
+
+-- Bijhouden welke spelersnamen al een Rayfield-knop hebben
+local addedPlayers = {}
+
+local function teleportToPlayer(player, icon)
+    local targetChar = player.Character
+    local targetHRP  = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
+    if not targetHRP then
+        Rayfield:Notify({ Title = "Niet bereikbaar", Content = player.Name .. " heeft geen karakter.", Duration = 3 })
+        return
     end
-    playerTPButtons = {}
+    local myChar = LocalPlayer.Character
+    local myHRP  = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    if not myHRP then return end
+    myHRP.CFrame = targetHRP.CFrame + Vector3.new(3, 0, 0)
+    Rayfield:Notify({ Title = icon .. "  Geteleporteerd!", Content = "Je staat nu naast " .. player.Name, Duration = 3 })
 end
 
-local function buildPlayerButtons()
-    clearPlayerButtons()
-    local idx = 0
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer then
-            idx = (idx % #playerIcons) + 1
-            local icon = playerIcons[idx]
-            local player = p
-            local btn = TeleportTab:CreateButton({
-                Name = icon .. "  " .. player.Name,
-                Callback = function()
-                    local targetChar = player.Character
-                    local targetHRP  = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
-                    if not targetHRP then
-                        Rayfield:Notify({ Title = "Niet bereikbaar", Content = player.Name .. " heeft geen karakter.", Duration = 3 })
-                        return
-                    end
-                    local myChar = LocalPlayer.Character
-                    local myHRP  = myChar and myChar:FindFirstChild("HumanoidRootPart")
-                    if not myHRP then return end
-                    myHRP.CFrame = targetHRP.CFrame + Vector3.new(3, 0, 0)
-                    Rayfield:Notify({ Title = icon .. "  Geteleporteerd!", Content = "Je staat nu naast " .. player.Name, Duration = 3 })
-                end,
-            })
-            if btn then playerTPButtons[btn] = true end
-        end
-    end
+local iconIndex = 0
+local function addTPButton(player)
+    if player == LocalPlayer then return end
+    if addedPlayers[player.Name] then return end  -- al toegevoegd
+    addedPlayers[player.Name] = true
+    iconIndex = (iconIndex % #playerIcons) + 1
+    local icon = playerIcons[iconIndex]
+    TeleportTab:CreateButton({
+        Name = icon .. "  " .. player.Name,
+        Callback = function()
+            -- Zoek de speler live op bij knopdruk (veilig als ze al weg zijn)
+            local target = Players:FindFirstChild(player.Name)
+            if not target then
+                Rayfield:Notify({ Title = "Niet in server", Content = player.Name .. " heeft de server verlaten.", Duration = 3 })
+                return
+            end
+            teleportToPlayer(target, icon)
+        end,
+    })
 end
 
--- Ververs-knop
+-- Ververs-knop: reset de addedPlayers lijst zodat iedereen opnieuw verschijnt
+-- (Rayfield verwijdert knoppen niet, maar de knop roept altijd de live speler op)
 TeleportTab:CreateButton({
     Name = "🔄  Ververs spelerslijst",
     Callback = function()
-        buildPlayerButtons()
+        addedPlayers = {}
+        iconIndex = 0
         local count = 0
-        for _ in pairs(playerTPButtons) do count = count + 1 end
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then
+                addTPButton(p)
+                count = count + 1
+            end
+        end
         Rayfield:Notify({
             Title   = "🔄 Lijst ververst",
-            Content = count .. " speler(s) gevonden in de server.",
+            Content = count .. " speler(s) in de server.",
             Duration = 3,
         })
     end,
 })
 
 -- Eerste keer laden
-buildPlayerButtons()
+for _, p in ipairs(Players:GetPlayers()) do
+    addTPButton(p)
+end
 
--- Auto-refresh als iemand joint of verlaat
-Players.PlayerAdded:Connect(function()
+-- Auto: nieuwe speler krijgt automatisch een knop
+Players.PlayerAdded:Connect(function(p)
     task.wait(1)
-    buildPlayerButtons()
-end)
-Players.PlayerRemoving:Connect(function()
-    task.wait(0.2)
-    buildPlayerButtons()
+    addTPButton(p)
 end)
 
 -- ── Handmatig ────────────────────────────────────────────────
