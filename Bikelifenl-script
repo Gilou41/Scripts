@@ -1,0 +1,391 @@
+-- ============================================================
+--  BIKELIFE NETHERLANDS  |  Full Panel v3
+--  LocalScript → StarterPlayerScripts
+--  Features: Teleport | Fly | ESP | Speler TP | Noclip | Breng speler
+-- ============================================================
+
+local Players         = game:GetService("Players")
+local TweenService    = game:GetService("TweenService")
+local RunService      = game:GetService("RunService")
+local UserInputService= game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer     = Players.LocalPlayer
+
+-- ── LOAD RAYFIELD ────────────────────────────────────────────
+local Rayfield = loadstring(game:HttpGet(
+    "https://sirius.menu/rayfield"
+))()
+
+-- ════════════════════════════════════════════════════════════
+--  WINDOW
+-- ════════════════════════════════════════════════════════════
+local Window = Rayfield:CreateWindow({
+    Name            = "🇳🇱 Bikelife Netherlands",
+    LoadingTitle    = "Bikelife NL",
+    LoadingSubtitle = "Full Panel v3",
+    ConfigurationSaving = { Enabled = false },
+    Discord         = { Enabled = false },
+    KeySystem       = false,
+})
+
+-- ════════════════════════════════════════════════════════════
+--  TAB 1 – TELEPORT (locaties + spelers)
+-- ════════════════════════════════════════════════════════════
+local Locations = {
+    { Name = "🥙 Kebab Shop",     Icon = "🥙", Position = Vector3.new(1947.647216796875,  4.506259918212891,  -764.1363525390625) },
+    { Name = "🚲 Bike Dealer",    Icon = "🚲", Position = Vector3.new(1792.896728515625,  4.456263542175293,   883.2994995117188) },
+    { Name = "🎨 Customize Area", Icon = "🎨", Position = Vector3.new(1728.9371337890625, 4.456263542175293,   883.0576171875)    },
+    -- { Name = "⛽ Benzinestation", Icon = "⛽", Position = Vector3.new(0, 5, 0) },
+}
+
+local function teleportTo(location)
+    local char = LocalPlayer.Character
+    local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then
+        Rayfield:Notify({ Title = "Niet klaar", Content = "Je karakter is nog niet geladen!", Duration = 3 })
+        return
+    end
+    hrp.CFrame = CFrame.new(location.Position + Vector3.new(0, 4, 0))
+    Rayfield:Notify({ Title = "Geteleporteerd! " .. location.Icon, Content = "Je bent nu bij " .. location.Name, Duration = 3 })
+end
+
+local TeleportTab = Window:CreateTab("📍 Teleport", 4483362458)
+TeleportTab:CreateSection("Locaties")
+
+for _, location in ipairs(Locations) do
+    local loc = location
+    TeleportTab:CreateButton({
+        Name     = loc.Name,
+        Callback = function() teleportTo(loc) end,
+    })
+end
+
+-- ── Teleport naar speler ─────────────────────────────────────
+TeleportTab:CreateSection("Teleport naar Speler")
+
+local function getOtherPlayerNames()
+    local names = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then table.insert(names, p.Name) end
+    end
+    return names
+end
+
+local selectedTPPlayer = nil
+
+TeleportTab:CreateDropdown({
+    Name            = "Kies speler",
+    Options         = getOtherPlayerNames(),
+    CurrentOption   = {},
+    MultipleOptions = false,
+    Flag            = "TPPlayerTarget",
+    Callback        = function(option)
+        selectedTPPlayer = Players:FindFirstChild(option)
+    end,
+})
+
+TeleportTab:CreateButton({
+    Name = "🚀 Teleporteer naar speler",
+    Callback = function()
+        if not selectedTPPlayer then
+            Rayfield:Notify({ Title = "Geen speler", Content = "Kies eerst een speler uit de lijst.", Duration = 3 })
+            return
+        end
+        local targetChar = selectedTPPlayer.Character
+        local targetHRP  = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
+        if not targetHRP then
+            Rayfield:Notify({ Title = "Speler niet gevonden", Content = selectedTPPlayer.Name .. " heeft geen karakter.", Duration = 3 })
+            return
+        end
+        local myChar = LocalPlayer.Character
+        local myHRP  = myChar and myChar:FindFirstChild("HumanoidRootPart")
+        if not myHRP then return end
+        myHRP.CFrame = targetHRP.CFrame + Vector3.new(3, 0, 0)
+        Rayfield:Notify({ Title = "Geteleporteerd! 🚀", Content = "Je staat nu bij " .. selectedTPPlayer.Name, Duration = 3 })
+    end,
+})
+
+-- ── Handmatig ────────────────────────────────────────────────
+TeleportTab:CreateSection("Handmatig")
+local cX, cY, cZ = 0, 5, 0
+TeleportTab:CreateSlider({ Name = "X", Range = {-5000,5000}, Increment = 1, CurrentValue = 0, Flag = "cX", Callback = function(v) cX = v end })
+TeleportTab:CreateSlider({ Name = "Y", Range = {0,500},      Increment = 1, CurrentValue = 5, Flag = "cY", Callback = function(v) cY = v end })
+TeleportTab:CreateSlider({ Name = "Z", Range = {-5000,5000}, Increment = 1, CurrentValue = 0, Flag = "cZ", Callback = function(v) cZ = v end })
+TeleportTab:CreateButton({
+    Name = "⚡ Teleporteer naar coördinaten",
+    Callback = function()
+        teleportTo({ Name = "Handmatige locatie", Icon = "📌", Position = Vector3.new(cX, cY, cZ) })
+    end,
+})
+
+-- ════════════════════════════════════════════════════════════
+--  TAB 2 – FLY
+-- ════════════════════════════════════════════════════════════
+local FlyTab = Window:CreateTab("✈️ Vliegen", 4483362458)
+
+local flying   = false
+local flySpeed = 60
+local flyConn, bodyVel, bodyGyro
+
+local function stopFly()
+    flying = false
+    if flyConn  then flyConn:Disconnect() flyConn = nil end
+    if bodyVel  then bodyVel:Destroy()    bodyVel  = nil end
+    if bodyGyro then bodyGyro:Destroy()   bodyGyro = nil end
+    local char = LocalPlayer.Character
+    local hum  = char and char:FindFirstChildOfClass("Humanoid")
+    if hum then hum.PlatformStand = false end
+end
+
+local function startFly()
+    local char = LocalPlayer.Character
+    local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+    local hum  = char and char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum then return end
+    flying = true
+    hum.PlatformStand = true
+    bodyVel = Instance.new("BodyVelocity", hrp)
+    bodyVel.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+    bodyVel.Velocity = Vector3.zero
+    bodyGyro = Instance.new("BodyGyro", hrp)
+    bodyGyro.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
+    bodyGyro.P = 1e4
+    local cam = workspace.CurrentCamera
+    flyConn = RunService.Heartbeat:Connect(function()
+        if not flying then return end
+        local dir = Vector3.zero
+        if UserInputService:IsKeyDown(Enum.KeyCode.W)           then dir = dir + cam.CFrame.LookVector  end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S)           then dir = dir - cam.CFrame.LookVector  end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A)           then dir = dir - cam.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D)           then dir = dir + cam.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space)       then dir = dir + Vector3.new(0,1,0)     end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then dir = dir - Vector3.new(0,1,0)     end
+        if dir.Magnitude > 0 then dir = dir.Unit end
+        bodyVel.Velocity = dir * flySpeed
+        bodyGyro.CFrame  = cam.CFrame
+    end)
+end
+
+FlyTab:CreateToggle({
+    Name = "Vliegen inschakelen", CurrentValue = false, Flag = "FlyToggle",
+    Callback = function(state) if state then startFly() else stopFly() end end,
+})
+FlyTab:CreateSlider({
+    Name = "Vliegsnelheid", Range = {10, 300}, Increment = 5, CurrentValue = 60, Flag = "FlySpeed",
+    Callback = function(val) flySpeed = val end,
+})
+FlyTab:CreateSection("Besturing")
+FlyTab:CreateLabel("WASD = bewegen  |  Space = omhoog  |  LCtrl = omlaag")
+FlyTab:CreateLabel("De camera bepaalt de vliegrichting.")
+
+LocalPlayer.CharacterAdded:Connect(function()
+    if flying then task.wait(0.5) stopFly() startFly() end
+end)
+
+-- ════════════════════════════════════════════════════════════
+--  TAB 3 – NOCLIP
+-- ════════════════════════════════════════════════════════════
+local NoclipTab = Window:CreateTab("👻 Noclip", 4483362458)
+
+local noclipEnabled = false
+local noclipConn
+
+local function setNoclip(state)
+    noclipEnabled = state
+    if state then
+        noclipConn = RunService.Stepped:Connect(function()
+            local char = LocalPlayer.Character
+            if not char then return end
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") and part.CanCollide then
+                    part.CanCollide = false
+                end
+            end
+        end)
+    else
+        if noclipConn then noclipConn:Disconnect() noclipConn = nil end
+        -- Zet collision terug
+        local char = LocalPlayer.Character
+        if char then
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = true
+                end
+            end
+        end
+    end
+end
+
+NoclipTab:CreateToggle({
+    Name        = "Noclip inschakelen",
+    CurrentValue= false,
+    Flag        = "NoclipToggle",
+    Callback    = function(state)
+        setNoclip(state)
+        Rayfield:Notify({
+            Title   = state and "👻 Noclip AAN" or "👻 Noclip UIT",
+            Content = state and "Je loopt nu door alles heen." or "Collision is terug.",
+            Duration = 3,
+        })
+    end,
+})
+
+NoclipTab:CreateSection("Info")
+NoclipTab:CreateLabel("Met noclip loop je door muren, vloeren en objecten.")
+NoclipTab:CreateLabel("Combineer met Vliegen voor maximale vrijheid.")
+
+LocalPlayer.CharacterAdded:Connect(function()
+    if noclipEnabled then task.wait(0.5) setNoclip(true) end
+end)
+
+-- ════════════════════════════════════════════════════════════
+--  TAB 4 – SPELERSBEHEER (Breng speler naar jou)
+--  Vereist ServerScript met RemoteEvent "BringPlayer" in ReplicatedStorage
+-- ════════════════════════════════════════════════════════════
+local ManageTab = Window:CreateTab("👮 Beheer", 4483362458)
+
+local selectedManagePlayer = nil
+
+ManageTab:CreateSection("Breng Speler naar Jou")
+ManageTab:CreateLabel("⚠️ Vereist ServerScript — zie onderaan.")
+
+ManageTab:CreateDropdown({
+    Name            = "Kies speler",
+    Options         = getOtherPlayerNames(),
+    CurrentOption   = {},
+    MultipleOptions = false,
+    Flag            = "ManageTarget",
+    Callback        = function(option)
+        selectedManagePlayer = Players:FindFirstChild(option)
+    end,
+})
+
+ManageTab:CreateButton({
+    Name = "📥 Breng speler naar mij",
+    Callback = function()
+        if not selectedManagePlayer then
+            Rayfield:Notify({ Title = "Geen speler", Content = "Kies eerst een speler.", Duration = 3 })
+            return
+        end
+        -- Stuurt verzoek naar server; server verifieert of jij de owner bent
+        local remote = ReplicatedStorage:FindFirstChild("BringPlayer")
+        if remote then
+            remote:FireServer(selectedManagePlayer)
+            Rayfield:Notify({ Title = "📥 Verzoek verstuurd", Content = selectedManagePlayer.Name .. " wordt naar jou gebracht.", Duration = 3 })
+        else
+            Rayfield:Notify({ Title = "❌ Geen ServerScript", Content = "Voeg ServerScript.lua toe aan ServerScriptService!", Duration = 5 })
+        end
+    end,
+})
+
+ManageTab:CreateSection("Info")
+ManageTab:CreateLabel("'Breng speler' werkt alleen met het bijgeleverde ServerScript.")
+ManageTab:CreateLabel("Alleen de owner (jouw UserId) mag dit gebruiken.")
+
+-- ════════════════════════════════════════════════════════════
+--  TAB 5 – ESP
+-- ════════════════════════════════════════════════════════════
+local ESPTab = Window:CreateTab("👁️ ESP", 4483362458)
+
+local espEnabled    = false
+local espHighlights = {}
+local espBillboards = {}
+local espColor      = Color3.fromRGB(255, 50, 50)
+local espShowNames  = true
+local espShowDist   = true
+
+local function removeESP(player)
+    if espHighlights[player] then espHighlights[player]:Destroy() espHighlights[player] = nil end
+    if espBillboards[player] then espBillboards[player]:Destroy() espBillboards[player] = nil end
+end
+
+local function makeNameTag(player, char)
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    local bb = Instance.new("BillboardGui")
+    bb.Name = "ESP_Billboard"
+    bb.AlwaysOnTop = true
+    bb.Size = UDim2.new(0, 140, 0, 40)
+    bb.StudsOffset = Vector3.new(0, 3.5, 0)
+    bb.Adornee = hrp
+    bb.Parent  = hrp
+    local label = Instance.new("TextLabel", bb)
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.TextColor3 = Color3.new(1, 1, 1)
+    label.TextStrokeTransparency = 0
+    label.TextStrokeColor3 = Color3.new(0, 0, 0)
+    label.Font = Enum.Font.GothamBold
+    label.TextScaled = true
+    label.Text = player.Name
+    espBillboards[player] = bb
+    RunService.Heartbeat:Connect(function()
+        if not espEnabled or not espBillboards[player] then return end
+        local localChar = LocalPlayer.Character
+        local localHRP  = localChar and localChar:FindFirstChild("HumanoidRootPart")
+        if not localHRP or not hrp.Parent then return end
+        local dist = math.floor((hrp.Position - localHRP.Position).Magnitude)
+        local nameText = espShowNames and player.Name or ""
+        local distText = espShowDist  and (" [" .. dist .. "m]") or ""
+        label.Text = nameText .. distText
+    end)
+end
+
+local function applyESP(player)
+    if player == LocalPlayer then return end
+    local char = player.Character
+    if not char then return end
+    local h = Instance.new("Highlight")
+    h.FillColor    = espColor
+    h.OutlineColor = Color3.new(1, 1, 1)
+    h.FillTransparency    = 0.4
+    h.OutlineTransparency = 0
+    h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    h.Adornee = char
+    h.Parent  = char
+    espHighlights[player] = h
+    makeNameTag(player, char)
+    player.CharacterAdded:Connect(function(newChar)
+        task.wait(0.2)
+        if espEnabled then
+            if espHighlights[player] then espHighlights[player]:Destroy() end
+            if espBillboards[player] then espBillboards[player]:Destroy() end
+            applyESP(player)
+        end
+    end)
+end
+
+local function enableESP()
+    espEnabled = true
+    for _, p in ipairs(Players:GetPlayers()) do applyESP(p) end
+    Players.PlayerAdded:Connect(function(p)
+        if espEnabled then task.wait(1) applyESP(p) end
+    end)
+end
+
+local function disableESP()
+    espEnabled = false
+    for p, _ in pairs(espHighlights) do removeESP(p) end
+end
+
+ESPTab:CreateToggle({ Name = "ESP inschakelen", CurrentValue = false, Flag = "ESPToggle",
+    Callback = function(state) if state then enableESP() else disableESP() end end })
+ESPTab:CreateColorPicker({ Name = "ESP Kleur", Color = Color3.fromRGB(255,50,50), Flag = "ESPColor",
+    Callback = function(color)
+        espColor = color
+        for _, h in pairs(espHighlights) do h.FillColor = color end
+    end })
+ESPTab:CreateToggle({ Name = "Namen tonen",   CurrentValue = true, Flag = "ESPNames", Callback = function(s) espShowNames = s end })
+ESPTab:CreateToggle({ Name = "Afstand tonen", CurrentValue = true, Flag = "ESPDist",  Callback = function(s) espShowDist  = s end })
+ESPTab:CreateSection("Info")
+ESPTab:CreateLabel("ESP werkt door muren heen (AlwaysOnTop).")
+ESPTab:CreateLabel("Naamtags tonen speler + afstand in meters.")
+
+Players.PlayerRemoving:Connect(function(p) removeESP(p) end)
+
+-- ── KLAAR ────────────────────────────────────────────────────
+Rayfield:Notify({
+    Title   = "🇳🇱 Bikelife Netherlands",
+    Content = "Panel v3 geladen! Alle functies beschikbaar.",
+    Duration = 5,
+})
