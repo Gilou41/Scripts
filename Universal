@@ -317,13 +317,13 @@ end
 
 Players.PlayerRemoving:Connect(function(p) removeESP(p) end)
 
---// Rayfield UI Initialization
+--// Rayfield UI Initialization (AANGEPAST NAAR UNIVERSAL / BY GILOU)
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
-    Name = "Combat Panel Pro",
-    LoadingTitle = "Combat Panel",
-    LoadingSubtitle = "by de owner & improved",
+    Name = "🇧🇪 Universal",
+    LoadingTitle = "🇧🇪 Universal",
+    LoadingSubtitle = "By Gilou",
     ConfigurationSaving = { Enabled = false },
     KeySystem = false
 })
@@ -563,57 +563,96 @@ for _, preset in ipairs(presets) do
 end
 
 -- ==========================================
--- TELEPORT TAB
+-- TELEPORT TAB (Unieke Emoji's & Fling Proof)
 -- ==========================================
-local playerIcons = {"🏍️","🚴","🛵","🤙","🏁","💨","👑","🔥"}
-local addedTPPlayers = {}
-local tpIconIndex = 0
+TPTab:CreateSection("🧍 Teleport naar Speler")
 
-local function teleportToPlayer(player, icon)
-    local tc = player.Character
-    local th = tc and tc:FindFirstChild("HumanoidRootPart")
-    if not th then
-        Rayfield:Notify({ Title = "Niet bereikbaar", Content = player.Name .. " heeft geen karakter.", Duration = 3 })
+-- Grote lijst met verschillende emoji's zodat elke naam uniek is
+local playerIcons = {
+    "🏍️", "🚴", "🛵", "🤙", "🏁", "💨", "👑", "🔥", "🎯", "⚡", 
+    "🌟", "🚀", "🍕", "🦾", "👾", "🕶️", "🐱", "🎧", "🍀", "💎", 
+    "🛡️", "🏹", "🔮", "🥊", "🏆", "🚗", "✈️", "😎", "👻", "😈"
+}
+
+local function teleportToPlayer(selectedOption)
+    -- Haal de echte naam uit de string door de emoji te negeren
+    local playerName
+    for _, p in ipairs(Players:GetPlayers()) do
+        if selectedOption:find(p.Name, 1, true) then
+            playerName = p.Name
+            break
+        end
+    end
+
+    if not playerName then return end
+
+    local target = Players:FindFirstChild(playerName)
+    if not target then
+        Rayfield:Notify({ Title = "Fout", Content = playerName .. " zit niet meer in de server.", Duration = 3 })
         return
     end
-    local mc = LocalPlayer.Character
-    local mh = mc and mc:FindFirstChild("HumanoidRootPart")
-    if not mh then return end
-    mh.CFrame = th.CFrame + Vector3.new(3, 0, 0)
-    Rayfield:Notify({ Title = icon .. " Geteleporteerd!", Content = "Je staat nu naast " .. player.Name, Duration = 3 })
-end
-
-local function addTPButton(player)
-    if player == LocalPlayer then return end
-    if addedTPPlayers[player.Name] then return end
-    addedTPPlayers[player.Name] = true
-    tpIconIndex = (tpIconIndex % #playerIcons) + 1
-    local icon = playerIcons[tpIconIndex]
-    TPTab:CreateButton({
-        Name = icon .. "  " .. player.Name,
-        Callback = function()
-            local target = Players:FindFirstChild(player.Name)
-            if not target then
-                Rayfield:Notify({ Title = "Niet in server", Content = player.Name .. " heeft de server verlaten.", Duration = 3 })
-                return
-            end
-            teleportToPlayer(target, icon)
-        end,
-    })
-end
-
-TPTab:CreateSection("🧍 Spelers")
-TPTab:CreateButton({ Name = "🔄 Ververs lijst", Callback = function()
-    addedTPPlayers = {} tpIconIndex = 0
-    local count = 0
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer then addTPButton(p) count = count + 1 end
+    
+    local targetChar = target.Character
+    local targetHRP  = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
+    if not targetHRP then
+        Rayfield:Notify({ Title = "Niet bereikbaar", Content = target.Name .. " leeft momenteel niet.", Duration = 3 })
+        return
     end
-    Rayfield:Notify({ Title = "🔄 Ververst", Content = count .. " speler(s) gevonden.", Duration = 3 })
-end })
+    
+    local myChar = LocalPlayer.Character
+    if not myChar then return end
+    
+    -- Veilig 6 studs boven de target positioneren om flings te voorkomen
+    myChar:PivotTo(targetHRP.CFrame + Vector3.new(0, 6, 0))
+    Rayfield:Notify({ Title = "👑 Universal Teleport", Content = "Veilig geteleporteerd naar " .. target.Name, Duration = 3 })
+end
 
-for _, p in ipairs(Players:GetPlayers()) do addTPButton(p) end
-Players.PlayerAdded:Connect(function(p) task.wait(1) addTPButton(p) end)
+local PlayerDropdown = TPTab:CreateDropdown({
+    Name = "Kies een speler uit de lijst",
+    Options = {},
+    CurrentOption = {""},
+    MultipleOptions = false,
+    Flag = "PlayerTPDropdown",
+    Callback = function(Option)
+        if Option[1] and Option[1] ~= "" then
+            teleportToPlayer(Option[1])
+        end
+    end,
+})
+
+local function updatePlayerList()
+    local currentPlayers = {}
+    local iconIndex = 0
+    
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            -- Geef elke opeenvolgende speler een andere emoji uit de lijst
+            iconIndex = (iconIndex % #playerIcons) + 1
+            local icon = playerIcons[iconIndex]
+            table.insert(currentPlayers, icon .. "  " .. p.Name)
+        end
+    end
+    
+    PlayerDropdown:Refresh(currentPlayers, true)
+    return #currentPlayers
+end
+
+TPTab:CreateButton({
+    Name = "🔄  Ververs spelerslijst",
+    Callback = function()
+        local count = updatePlayerList()
+        Rayfield:Notify({ Title = "🔄 Ververst", Content = count .. " speler(s) ingeladen met unieke emoji's.", Duration = 3 })
+    end
+})
+
+-- Automatisch updaten bij laden en als er mensen joinen/leaven
+task.spawn(function()
+    task.wait(1)
+    updatePlayerList()
+end)
+
+Players.PlayerAdded:Connect(function() task.wait(1) updatePlayerList() end)
+Players.PlayerRemoving:Connect(function() task.wait(1) updatePlayerList() end)
 
 -- ==========================================
 -- MOVE TAB (Fly & Speed)
@@ -718,7 +757,7 @@ Load()
 
 --// Ready Notification
 Rayfield:Notify({
-    Name = "Combat Panel Pro",
-    Content = "Alles succesvol geladen in één menu!",
+    Name = "🇧🇪 Universal",
+    Content = "Geladen! Veel plezier, Gilou!",
     Duration = 5,
 })
